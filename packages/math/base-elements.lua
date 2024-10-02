@@ -121,9 +121,10 @@ local function retrieveMathTable (font)
          mathTableParsable, mathTable = pcall(ot.parseMath, rawMathTable)
       end
       if not fontHasMathTable or not mathTableParsable then
-         SU.error(([[You must use a math font for math rendering.
+         SU.error(([[
+            You must use a math font for math rendering
 
-  The math table in '%s' could not be %s.
+            The math table in '%s' could not be %s.
          ]]):format(face.filename, fontHasMathTable and "parsed" or "loaded"))
       end
       local upem = ot.parseHead(hb.get_table(face, "head")).unitsPerEm
@@ -908,7 +909,7 @@ end
 function elements.text:_init (kind, attributes, script, text)
    elements.terminal._init(self)
    if not (kind == "number" or kind == "identifier" or kind == "operator") then
-      SU.error("Unknown text node kind '" .. kind .. "'; should be one of: number, identifier, operator.")
+      SU.error("Unknown text node kind '" .. kind .. "'; should be one of: number, identifier, operator")
    end
    self.kind = kind
    self.script = script
@@ -1333,6 +1334,95 @@ function elements.table:shape ()
 end
 
 function elements.table.output (_) end
+
+elements.sqrt = pl.class(elements.mbox)
+elements.sqrt._type = "Sqrt"
+
+function elements.sqrt:__tostring ()
+   return self._type .. "(" .. tostring(self.radicand) .. ")"
+end
+
+function elements.sqrt:_init (radicand)
+   elements.mbox._init(self)
+   self.radicand = radicand
+   table.insert(self.children, radicand)
+   self.relX = SILE.types.length(0) -- x position relative to its parent box
+   self.relY = SILE.types.length(0) -- y position relative to its parent box
+end
+
+function elements.sqrt:styleChildren ()
+   self.radicand.mode = self.mode
+end
+
+function elements.sqrt:shape ()
+   local mathMetrics = self:getMathMetrics()
+   local scaleDown = self:getScaleDown()
+   local constants = mathMetrics.constants
+
+   self.radicalRuleThickness = constants.radicalRuleThickness * scaleDown
+   if self.mode == mathMode.display or self.mode == mathMode.displayCramped then
+      self.radicalVerticalGap = constants.radicalDisplayStyleVerticalGap * scaleDown
+   else
+      self.radicalVerticalGap = constants.radicalVerticalGap * scaleDown
+   end
+   self.extraAscender = constants.radicalExtraAscender * scaleDown
+
+   -- HACK: More or less ad hoc values, see output method for more details
+   self.symbolWidth = SILE.shaper:measureChar("√").width
+   self.symbolHeight = SILE.types.length("1.1ex"):tonumber() * scaleDown
+
+   self.width = self.radicand.width + SILE.types.length(self.symbolWidth)
+   self.height = self.radicand.height + self.radicalVerticalGap + self.extraAscender
+   self.depth = self.radicand.depth
+   self.radicand:shape()
+   self.radicand.relX = self.symbolWidth
+end
+
+local function _r (number)
+   -- Lua 5.3+ formats floats as 1.0 and integers as 1
+   -- Also some PDF readers do not like double precision.
+   return math.floor(number) == number and math.floor(number) or tonumber(string.format("%.5f", number))
+end
+
+function elements.sqrt:output (x, y, line)
+   -- HACK FIXME:
+   -- OpenType might say we need to assemble the radical sign from parts.
+   -- Frankly, it's much easier to just draw it as a graphic :-)
+   -- Hence, here we use a PDF graphic operators to draw a nice radical sign.
+   -- Some values here are ad hoc, but they look good.
+   local h = self.height:tonumber()
+   local d = self.depth:tonumber()
+   local sw = self.symbolWidth
+   local dh = h - self.symbolHeight
+   local symbol = {
+      _r(self.radicalRuleThickness),
+      "w", -- line width
+      2,
+      "j", -- round line joins
+      _r(sw),
+      _r(self.extraAscender),
+      "m",
+      _r(sw * 0.4),
+      _r(h + d),
+      "l",
+      _r(sw * 0.15),
+      _r(dh),
+      "l",
+      0,
+      _r(dh + 0.5),
+      "l",
+      "S",
+   }
+   local svg = table.concat(symbol, " ")
+   SILE.outputter:drawSVG(svg, x, y, sw, h, 1)
+   -- And now we just need to draw the bar over the radicand
+   SILE.outputter:drawRule(
+      self.symbolWidth + scaleWidth(x, line),
+      y.length - scaleWidth(self.radicand.height, line) - self.radicalVerticalGap - self.radicalRuleThickness / 2,
+      scaleWidth(self.radicand.width, line),
+      self.radicalRuleThickness
+   )
+end
 
 elements.mathMode = mathMode
 elements.atomType = atomType
