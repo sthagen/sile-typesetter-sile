@@ -41,11 +41,16 @@ function ConvertMathML (_, content)
       return b.stackbox("V", convertChildren(content))
    elseif content.command == "mrow" then
       return b.stackbox("H", convertChildren(content))
+   elseif content.command == "mphantom" then
+      -- MathML's standard mphantom corresponds to TeX's \phantom only.
+      -- Let's support a special attribute "h" or "v" for TeX-like \hphantom or \vphantom.
+      local special = content.options.special
+      return b.phantom(convertChildren(content), special)
    elseif content.command == "mi" then
       local script = content.options.mathvariant and b.mathVariantToScriptType(content.options.mathvariant)
       local text = content[1]
       if type(text) ~= "string" then
-         SU.error("mi command contains " .. text .. ", which is not text")
+         SU.error("mi command contains content which is not text")
       end
       script = script or (luautf8.len(text) == 1 and b.scriptType.italic or b.scriptType.upright)
       return b.text("identifier", {}, script, text)
@@ -67,7 +72,7 @@ function ConvertMathML (_, content)
          end
       end
       if type(text) ~= "string" then
-         SU.error("mo command contains " .. text .. ", which is not text")
+         SU.error("mo command contains content which is not text")
       end
       return b.text("operator", attributes, script, text)
    elseif content.command == "mn" then
@@ -75,7 +80,7 @@ function ConvertMathML (_, content)
          or b.scriptType.upright
       local text = content[1]
       if type(text) ~= "string" then
-         SU.error("mn command contains " .. text .. ", which is not text")
+         SU.error("mn command contains content which is not text")
       end
       if string.sub(text, 1, 1) == "-" then
          text = "−" .. string.sub(text, 2)
@@ -129,6 +134,9 @@ function ConvertMathML (_, content)
       local children = convertChildren(content)
       -- "The <msqrt> element generates an anonymous <mrow> box called the msqrt base
       return b.sqrt(b.stackbox("H", children))
+   elseif content.command == "mroot" then
+      local children = convertChildren(content)
+      return b.sqrt(children[1], children[2])
    elseif content.command == "mtable" or content.command == "table" then
       local children = convertChildren(content)
       return b.table(children, content.options)
@@ -136,6 +144,19 @@ function ConvertMathML (_, content)
       return b.mtr(convertChildren(content))
    elseif content.command == "mtd" then
       return b.stackbox("H", convertChildren(content))
+   elseif content.command == "mtext" or content.command == "ms" then
+      if #content > 1 then
+         SU.error("Wrong number of children in " .. content.command .. ": " .. #content)
+      end
+      local text = content[1] or "" -- empty mtext is allowed, and found in examples...
+      if type(text) ~= "string" then
+         SU.error(content.command .. " command contains content which is not text")
+      end
+      -- MathML Core 3.2.1.1 Layout of <mtext> has some wording about forced line breaks
+      -- and soft wrap opportunities: ignored here.
+      -- There's also some explanations about CSS, italic correction etc. which we ignore too.
+      text = text:gsub("[\n\r]", " ")
+      return b.text("string", {}, b.scriptType.upright, text:gsub("%s+", " "))
    else
       SU.error("Unknown math command " .. content.command)
    end
