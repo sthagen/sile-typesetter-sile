@@ -147,7 +147,9 @@ function ConvertMathML (_, content)
       if #children ~= 2 then
          SU.error("Wrong number of children in mfrac: " .. #children)
       end
-      return b.fraction(content.options, children[1], children[2])
+      return SU.boolean(content.options.bevelled, false)
+            and b.bevelledFraction(content.options, children[1], children[2])
+         or b.fraction(content.options, children[1], children[2])
    elseif content.command == "msqrt" then
       local children = convertChildren(content)
       -- "The <msqrt> element generates an anonymous <mrow> box called the msqrt base
@@ -211,8 +213,15 @@ local function handleMath (_, mbox, options)
    mbox:shapeTree()
 
    if mode == "display" then
-      SILE.typesetter:endline()
+      -- See https://github.com/sile-typesetter/sile/issues/2160
+      --    We are not excactly doing the right things here with respect to
+      --    paragraphing expectations.
+      -- The vertical penalty will flush the previous paragraph, if any.
+      SILE.call("penalty", { penalty = SILE.settings:get("math.predisplaypenalty"), vertical = true })
       SILE.typesetter:pushExplicitVglue(SILE.settings:get("math.displayskip"))
+      -- Repeating the penalty after the skip does not hurt but should not be
+      -- necessary if our page builder did its stuff correctly.
+      SILE.call("penalty", { penalty = SILE.settings:get("math.predisplaypenalty"), vertical = true })
       SILE.settings:temporarily(function ()
          -- Center the equation in the space available up to the counter (if any),
          -- respecting the fixed part of the left and right skips.
@@ -233,9 +242,14 @@ local function handleMath (_, mbox, options)
          elseif options.number then
             SILE.call("math:numberingstyle", options)
          end
-         SILE.typesetter:endline()
+         -- The vertical penalty will flush the equation.
+         -- It must be done in the temporary settings block, because these have
+         -- to apply as line boxes are being built.
+         SILE.call("penalty", { penalty = SILE.settings:get("math.postdisplaypenalty"), vertical = true })
       end)
       SILE.typesetter:pushExplicitVglue(SILE.settings:get("math.displayskip"))
+      -- Repeating: Same remark as for the predisplay penalty above.
+      SILE.call("penalty", { penalty = SILE.settings:get("math.postdisplaypenalty"), vertical = true })
    else
       SILE.typesetter:pushHorizontal(mbox)
    end

@@ -718,17 +718,13 @@ function elements.underOver:_stretchyReshapeToBase (part)
 end
 
 function elements.underOver:shape ()
-   local isBaseLargeOp = SU.boolean(self.base and self.base.largeop, false)
-   if not (self.mode == mathMode.display or self.mode == mathMode.displayCramped) and isBaseLargeOp then
-      -- FIXME
-      -- Added the "largeop" condition, but it's kind of a workaround:
-      -- It should rather be the "moveablelimits" property in MathML, but we do not have that yet.
-      -- When the base is a moveable limit, the under/over scripts are not placed under/over the base,
+   local isMovableLimits = SU.boolean(self.base and self.base.movablelimits, false)
+   if not (self.mode == mathMode.display or self.mode == mathMode.displayCramped) and isMovableLimits then
+      -- When the base is a movable limit, the under/over scripts are not placed under/over the base,
       -- but other to the right of it, when display mode is not used.
       -- Notable effects:
       --   Mozilla MathML test 19 (on "k times" > overbrace > base)
       --   Maxwell's Equations in MathML3 Test Suite "complex1" (on the vectors in fractions)
-      -- For now, go with the "largeop" property, but this is not correct.
       self.isUnderOver = true
       elements.subscript.shape(self)
       return
@@ -1523,7 +1519,7 @@ function elements.sqrt:output (x, y, line)
    local symbol = {
       _r(self.radicalRuleThickness),
       "w", -- line width
-      2,
+      1,
       "j", -- round line joins
       _r(sw + s0),
       _r(self.extraAscender),
@@ -1597,6 +1593,63 @@ function elements.padded:shape ()
 end
 
 function elements.padded.output (_, _, _, _) end
+
+-- Bevelled fractions are not part of MathML Core, and MathML4 does not
+-- exactly specify how to compute the layout.
+elements.bevelledFraction = pl.class(elements.fraction) -- Inherit from fraction
+elements.fraction._type = "BevelledFraction"
+
+function elements.bevelledFraction:shape ()
+   local constants = self:getMathMetrics().constants
+   local scaleDown = self:getScaleDown()
+   local hSkew = constants.skewedFractionHorizontalGap * scaleDown
+   -- OpenType has properties which are not totally explicit.
+   -- The definition of skewedFractionVerticalGap (and its value in fonts
+   -- such as Libertinus Math) seems to imply that it is measured from the
+   -- bottom of the numerator to the top of the denominator.
+   -- This does not seem to be a nice general layout.
+   -- So we will use superscriptShiftUp(Cramped) for the numerator:
+   local vSkewUp = isCrampedMode(self.mode) and constants.superscriptShiftUpCramped * scaleDown
+      or constants.superscriptShiftUp * scaleDown
+   -- And all good books say that the denominator should not be shifted down:
+   local vSkewDown = 0
+
+   self.ruleThickness = self.attributes.linethickness
+         and SU.cast("measurement", self.attributes.linethickness):tonumber()
+      or constants.fractionRuleThickness * scaleDown
+   self.numerator.relX = SILE.types.length(0)
+   self.numerator.relY = SILE.types.length(-vSkewUp)
+   self.denominator.relX = self.numerator.width + hSkew
+   self.denominator.relY = SILE.types.length(vSkewDown)
+   self.width = self.numerator.width + self.denominator.width + hSkew
+   self.height = maxLength(self.numerator.height + vSkewUp, self.denominator.height - vSkewDown)
+   self.depth = maxLength(self.numerator.depth - vSkewUp, self.denominator.depth + vSkewDown)
+   self.barWidth = SILE.types.length(hSkew)
+   self.barX = self.numerator.relX + self.numerator.width
+end
+
+function elements.bevelledFraction:output (x, y, line)
+   local h = self.height:tonumber()
+   local d = self.depth:tonumber()
+   local barwidth = scaleWidth(self.barWidth, line):tonumber()
+   local xscaled = scaleWidth(x + self.barX, line)
+   local rd = self.ruleThickness / 2
+   local symbol = {
+      _r(self.ruleThickness),
+      "w", -- line width
+      1,
+      "J", -- round line caps
+      _r(0),
+      _r(d + h - rd),
+      "m",
+      _r(barwidth),
+      _r(rd),
+      "l",
+      "S",
+   }
+   local svg = table.concat(symbol, " ")
+   SILE.outputter:drawSVG(svg, xscaled, y, barwidth, h, 1)
+end
 
 elements.mathMode = mathMode
 elements.atomType = atomType
