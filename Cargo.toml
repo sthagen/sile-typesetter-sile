@@ -66,12 +66,15 @@ extend-ignore-identifiers-re = [
   "^Tyre$",
   "PoDoFo",
   "_Flate",
+  "pointint",
   "DEPENDEES",
   "EPdf",
   "FileAttachement"
 ]
 
   [package.metadata.typos.default.extend-words]
+  beveled = "bevelled"
+  bevelled = "bevelled"
   craters = "creators"
   neet = "need"
 
@@ -165,3 +168,6 @@ features = [ "derive" ]
 version = "8.2"
 default-features = false
 features = [ "build", "cargo", "git", "gitoxide" ]
+
+[package.metadata.docs.rs]
+features = [ "luajit", "vendored" ]
